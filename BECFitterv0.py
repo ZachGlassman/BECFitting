@@ -199,8 +199,8 @@ class fit_obj(object):
         self.params = Parameters()
         self.params.add('TFpeak', value = .2, min = 0.0)
         self.params.add('Gpeak', value = 0.01, min = 0.0)
-        self.params.add('TFRx', value = 20,min = 0.0)
-        self.params.add('TFRy', value = 20,min = 0.0)
+        self.params.add('TFRx', value = 127,min = 122,max = 132)
+        self.params.add('TFRy', value = 127,min = 122, max = 132)
         self.params.add('TFcenterx', value = multi_idx[0] * 7.04)
         self.params.add('TFcentery', value = multi_idx[1] * 7.04)
         self.params.add('sigx', value = 20 * 7,min = 0)
@@ -240,9 +240,9 @@ class fit_obj(object):
         self.bec_num = np.real(bec)/sig
         self.therm_num = therm/sig
         
-        #Function which takes string of inputs, one for each variable and each is 
-        #either 1 or 0 for binary free variable. 0 is fix variable
-        #string must be ordered in same way as parameters declared
+    #Function which takes string of inputs, one for each variable and each is 
+    #either 1 or 0 for binary free variable. 0 is fix variable
+    #string must be ordered in same way as parameters declared
     def params_vary(self,string_in):  
         if len(self.params) != len(string_in):
             print('Invalid String argument')
@@ -325,24 +325,31 @@ class fit_storage(object):
             self.fit_vars.append(self.grab_vals(int(index)))
             
     def do_fitting(self, show = False):
+        tot = len(self.fits)
+        k = 0
         for i in self.fits:
-            i.prepare_fit()
-            #fit one, get BEC RADIUS ESTIMATE
-            i.fit_enhanced_bimod(i.image)
-            #fit two, FIT THERMAL WINGS
-            i.subtract_bec(1)
-            i.lock_bec()
-            i.fit_enhanced_bimod(i.temp_image)
-            #FIT THREE, FIT BEC
-            i.subtract_thermal()
-            temp = i.lock_gauss()
-            i.fit_enhanced_bimod(i.temp_image)
-            #show results
-            i.params['Gpeak'].value = temp
-            if show == True:
-                i.show_fit_results()
-            i.clear_images()
-            i.num_atoms()
+            print('Fitting number',k, 'out of' ,tot)
+            try:
+                i.prepare_fit()
+                #fit one, get BEC RADIUS ESTIMATE
+                i.fit_enhanced_bimod(i.image)
+                #fit two, FIT THERMAL WINGS
+                i.subtract_bec(1)
+                i.lock_bec()
+                i.fit_enhanced_bimod(i.temp_image)
+                    #FIT THREE, FIT BEC
+                i.subtract_thermal()
+                temp = i.lock_gauss()
+                i.fit_enhanced_bimod(i.temp_image)
+                    #show results
+                i.params['Gpeak'].value = temp
+                if show == True:
+                    i.show_fit_results()
+                i.clear_images()
+                i.num_atoms()
+            except:
+                print('Error Encountered in',i.name)
+            k = k + 1
             
     def do_bimodal_fitting(self,show = False):
         for i in self.fits:
@@ -418,12 +425,17 @@ def set_up_fit(filename):
                 pass
                 
     return(data_names,ind_vars)
-    
+
+message = "Make sure you are in the folder with data images, independant variables and input file"  
 if __name__  == '__main__':
     start = time.time()
-    path = 'C:\\Users\\zag\\Documents\\TESTING\\fitinfo.txt'
-    filepath, filename = os.path.split(path)
-    os.chdir(filepath)
+    os. getcwd()
+    #path = 'C:\\Users\\zag\\Documents\\TESTING\\fitinfo.txt'
+    #filepath, filename = os.path.split(path)
+    #os.chdir(filepath)
+    print("This is BECFitter V1.0")
+    print(message)
+    filename = input("Input File Name: ")
     data_names,ind_vars = set_up_fit(filename)
     all_fits = fit_storage(data_names,ind_vars)
     mid = time.time()
