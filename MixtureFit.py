@@ -1,12 +1,12 @@
 __doc__ = '''
-BECFitter v0.0
+MixtureFit
 This is an improved BEC fitting routine which fits mixtures to a bimodal model.
+It can do sequential and non-sequential fitting
 It requires images with corresponding parameter and independant variable file as
-outputed by BECSAveWave igor routine.
+outputed by BECSaveWave igor routine.
 
-Dependencies: numpy,matplotlib,lmfit,time,os,functools
+Dependencies: numpy,matplotlib,lmfit,time,os,sys,argparse,pandas,numba
 
-Classes: fit_obj, fit_storage
 @author: Zachary Glassman
 '''
 #load necessary packages
@@ -159,7 +159,47 @@ def subtract_back(image,n):
     back = (np.average(image[:n])+np.average(image[-n:]))/2
     return np.subtract(image,back)
     
+def BEC_num(A,Rx,Ry, scalex,scaley):
+    """get number of BEC atoms from fit from equation
     
+    .. math::
+        N = \\left(\\frac{2 \\pi}{3\\lambda^2}\\right)\\frac{2\\pi A}{5}R_x R_y
+           
+    :param scalex: x scale of pixel
+    :param scaley: y scale of pixel
+    :param A: fitted Thomas-Fermi amplitude
+    :param Rx: fitted Thomas-Fermi x radius
+    :param Ry: fitted Thomas-Fermi y radius
+    :param sigma: optical density
+    :return: atom number
+    """
+     
+    Rx = Rx * scalex
+    Ry = Ry * scaley
+    sigma =  3 * (0.5891583264**2)/(2 * np.pi)
+    V = 2*np.pi/5 * A* Rx * Ry
+    return V/sigma 
+        
+def Therm_num(A,sigx, sigy, scalex,scaley):
+    """get number of Therm atoms from fit from equation
+        
+    .. math::
+        N = \\left(\\frac{2 \\pi}{3\\lambda^2}\\right)\\frac{2\\pi A}{5}R_x R_y
+           
+    :param scalex: x scale of pixel
+    :param scaley: y scale of pixel
+    :param A: fitted Gaussian amplitude
+    :param Rx: fitted Gaussian x standard deviation
+    :param Ry: fitted Gaussian y standard deviation
+    :param sigma: optical density
+    :return: atom number
+    """
+    Rx = sigx * scalex
+    Ry = sigy* scaley
+    sigma =  3 * (0.5891583264**2)/(2 * np.pi)
+    V = 2*np.pi* A* Rx * Ry
+    return V/sigma
+        
 #fancy writeout
 def write_progress(step,total):
     #write out fancy
@@ -215,10 +255,10 @@ def fit_image(args, data_in, filename, filepath):
     
     if args.single:
         out = bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
-        #results
+    
         report = out.fit_report()
         results =  {key:out.params[key].value for key in out.params.keys()}
-    
+        
     else:
         first_fit = bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
         pars = copy.deepcopy(first_fit.params)
@@ -258,6 +298,7 @@ def fit_image(args, data_in, filename, filepath):
         
         #do third fit
         out = bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
+        #results
         report = out.fit_report()
         results =  {key:out.params[key].value for key in out.params.keys()}
         
@@ -309,7 +350,7 @@ def fit_image(args, data_in, filename, filepath):
             plt.tight_layout()
             plt.savefig(os.path.join(filepath,filename + '.png'),dpi = 200)
         except:
-            report += '\n Had trouble making plots'
+            report += 'Had trouble making plots'
        
     return report, results
 
@@ -318,13 +359,15 @@ def main(args):
     start = time.time()
     filepath = os.path.join(os.getcwd(),args.path) 
     files = [f for f in os.listdir(filepath) if os.path.isfile(os.path.join(filepath,f))]
-    
+    if args.n:
+        files = files[:args.n]
     results_path = os.path.join(filepath,'Results')
     if not os.path.exists(results_path): 
         os.makedirs(results_path)
     #create dataframe
     pd_index = [f.rstrip('.txt') for f in files]
-    df = pd.DataFrame(columns = list(start_bimod_params.keys()), index = pd_index)
+    df = pd.DataFrame(columns = list(start_bimod_params.keys()),
+                      index = pd_index)
    
     #fit the suckers
     index = 0
@@ -352,14 +395,26 @@ def main(args):
                 df.loc[name] = pd.Series(results)
             index += 1
             write_progress(index,tot_index)
-    
+            
+    #now calculate NBEC and NTHERM from Results and save
+    df['N_BEC'] = np.vectorize(BEC_num)(df['bimod_peaktf'],
+                      df['bimod_Rx'],
+                      df['bimod_Ry'], args.scalex,args.scaley)
+    df['N_Therm'] = np.vectorize(Therm_num)(df['bimod_peakg'],
+                      df['bimod_sigx'],
+                      df['bimod_sigy'], args.scalex,args.scaley)
+                      
+    df.to_csv(os.path.join(results_path,'Param_Results.txt'))
     end = time.time()  
     print()
-    print_str = 'Completed fitting {1} out of {2} files in {3} '
-    print(print_str.format(tot_index- len(err_list),tot_index,end - start))
-    print('Error Files are')
-    for i in err_list:
-        print('  ' + i)
+    print_str = 'Completed fitting {0} out of {1} files'
+    print(print_str.format(tot_index-len(err_list),tot_index))
+    print('Total time: {0}\n Time per image: {1}'.format(end-start,
+                                                      (end-start)/tot_index))
+    if len(err_list) > 0:
+        print('Error Files are')
+        for i in err_list:
+            print('  ' + i)
     
         
       
@@ -390,11 +445,31 @@ if __name__  == '__main__':
                        dest = 'constant_mask',
                        default = False,
                        help = 'Use a constant mask (entered in matrix units) (default false)')
+                       
    parser.add_argument('-s', action = 'store',
                        dest = 's',
                        default = 1,
                        type = float,
                        help = 'Overestimate parameter of mask, only applies for non-constant mask (default = 1)')
+        
+   parser.add_argument('-n', action = 'store',
+                       dest = 'n',
+                       type = int,
+                       default = False,
+                       help = 'Fit only first n images (default False)')
+                       
+   parser.add_argument('-sx', action = 'store',
+                       dest = 'scalex',
+                       default = 7.04,
+                       type = float,
+                       help = 'x scale of pixel (default 7.04') 
+                       
+   parser.add_argument('-sy', action = 'store',
+                       dest = 'scaley',
+                       default = 7.04,
+                       type = float,
+                       help = 'y scale of pixel (default 7.04') 
+                       
    results = parser.parse_args()
    main(results)
 
