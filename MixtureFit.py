@@ -88,7 +88,7 @@ def g2(x):
     return x + (x**2)/4 + (x**3)/9
     
 
-def enhanced_gauss_2D(x,y,centerx,centery,peak,sigx,sigy,off,theta):
+def enhanced_gauss_2D(x,y,peak,sigx,sigy, centerx, centery, off, theta):
     """ 2 Dimensional Enhanced Gaussian profile
     
     :param x: array of x values
@@ -216,6 +216,7 @@ def write_progress(step,total):
 gauss_2d_mod = Model(gauss_2D, independent_vars = ['x','y'],prefix='gauss_')
 tf_2d_mod = Model(TF_2D, independent_vars = ['x','y'],prefix='tf_')
 bimod_2d_mod = Model(bimod_2D, independent_vars = ['x','y'],prefix='bimod_')
+
 #starting parameters for bimodal fits
 start_bimod_params = {'bimod_centerx': {'value':120, 'min' :80, 'max': 180},
                       'bimod_centery':{'value':120, 'min' : 80, 'max': 180},
