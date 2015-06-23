@@ -389,7 +389,7 @@ def main(args):
                 err_list.append(i)
             
             #write report to file
-            f.write('{0}\n{1}\n{2}\n'.format(i,report,''.join('#' for i in range(30))))
+            f.write('{0}\n{1}\n{2}\n'.format(i, report,''.join('#' for i in range(30))))
             #update pandas array
             if results:
                 df.loc[name] = pd.Series(results)
@@ -462,13 +462,13 @@ if __name__  == '__main__':
                        dest = 'scalex',
                        default = 7.04,
                        type = float,
-                       help = 'x scale of pixel (default 7.04') 
+                       help = 'x scale of pixel (default 7.04)') 
                        
    parser.add_argument('-sy', action = 'store',
                        dest = 'scaley',
                        default = 7.04,
                        type = float,
-                       help = 'y scale of pixel (default 7.04') 
+                       help = 'y scale of pixel (default 7.04)') 
                        
    results = parser.parse_args()
    main(results)
