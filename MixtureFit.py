@@ -218,22 +218,22 @@ tf_2d_mod = Model(TF_2D, independent_vars = ['x','y'],prefix='tf_')
 bimod_2d_mod = Model(bimod_2D, independent_vars = ['x','y'],prefix='bimod_')
 
 #starting parameters for bimodal fits
-start_bimod_params = {'bimod_centerx': {'value':120, 'min' :80, 'max': 180},
-                      'bimod_centery':{'value':120, 'min' : 80, 'max': 180},
-                      'bimod_peakg':{'value':.5,'min' : 0},
-                      'bimod_peaktf':{'value':1,'min' : 0},
-                      'bimod_Rx':{'value':5 ,'min' : 0},
-                      'bimod_Ry':{'value':5,'min' : 0},
-                      'bimod_sigx':{'value':60,'min' : 0},
-                      'bimod_sigy':{'value':60,'min' : 0},
+start_bimod_params = {'bimod_centerx': {'value':100,'min':40, 'max':200},
+                      'bimod_centery':{'value':90,'min':40, 'max':200},
+                      'bimod_peakg':{'value':.01,'min' : 0,'max':.5},
+                      'bimod_peaktf':{'value':.2,'min' : 0,'max':.5},
+                      'bimod_Rx':{'value':15 ,'min' : 0,'max':100},
+                      'bimod_Ry':{'value':15,'min' : 0,'max':100},
+                      'bimod_sigx':{'value':35,'min' : 0,'max':150},
+                      'bimod_sigy':{'value':35,'min' : 0,'max':150},
                       'bimod_off':{'value':0 ,'min' : -1,'max': 1},
-                      'bimod_theta':{'value':48, 'min' : 4, 'max': 50,'vary':False}
+                      'bimod_theta':{'value':48, 'min' : 48, 'max': 50}
                       }
+
 
 #set parameter hings in model                      
 for key, value in start_bimod_params.items():
-    bimod_2d_mod.set_param_hint(key, **value)
-        
+    bimod_2d_mod.set_param_hint(key, **value)       
     
 ##################
 #Fitting
@@ -253,6 +253,10 @@ def fit_image(args, data_in, filename, filepath):
     data = subtract_back(data_in,20)
     x,y = create_vec(data.shape)       
     pars = bimod_2d_mod.make_params()
+    
+    pars['bimod_centerx'].value = args.center_x_in
+    pars['bimod_centery'].value = args.center_y_in
+   
     
     if args.single:
         out = bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
@@ -360,6 +364,8 @@ def main(args):
     start = time.time()
     filepath = os.path.join(os.getcwd(),args.path) 
     files = [f for f in os.listdir(filepath) if os.path.isfile(os.path.join(filepath,f))]
+    #filter for .pxp files (probably there)
+    files = [f for f in files if f[-3:] != "pxp"]
     if args.n:
         files = files[:args.n]
     results_path = os.path.join(filepath,'Results')
@@ -470,7 +476,19 @@ if __name__  == '__main__':
                        default = 7.04,
                        type = float,
                        help = 'y scale of pixel (default 7.04)') 
+   parser.add_argument('-cx', action = 'store',
+                       dest = 'center_x_in',
+                       type = float,
+                       default = 100,
+                       help = 'X center in matrix units (default )')
+                       
+   parser.add_argument('-cy', action = 'store',
+                       dest = 'center_y_in',
+                       type = float,
+                       default = 90,
+                       help = 'Y center in matrix units (default )')
                        
    results = parser.parse_args()
+   
    main(results)
 
