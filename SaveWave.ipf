@@ -1,10 +1,11 @@
 #pragma rtGlobals=1		// Use modern global access method.
 
 //procedure for writing matrices to file for processing
-Function exportImages(starti, endi, pathStr)
+Function exportImages(starti, endi, pathStr,aname)
 	variable starti
 	variable endi
 	string pathStr
+	string aname
 	variable i 
 	string name
 	string pathFrom
@@ -26,7 +27,7 @@ Function exportImages(starti, endi, pathStr)
 		endif
 		print name
 		pathFrom = ":Matrices:" + name
-		Save/G/O/M = "\r\n"/U={1,0,0,0}/P = pathTo $pathFrom as (name + ".txt")
+		Save/G/O/M = "\r\n"/U={1,0,0,0}/P = pathTo $pathFrom as (aname + name + ".txt")
 	endfor
 	
 end

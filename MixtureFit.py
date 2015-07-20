@@ -7,6 +7,7 @@ outputed by BECSaveWave igor routine.
 
 Dependencies: numpy,matplotlib,lmfit,time,os,sys,argparse,pandas,numba
 
+7/8/2015 - added automatic center finding with fix to center positions
 @author: Zachary Glassman
 '''
 #load necessary packages
@@ -85,7 +86,7 @@ def g2(x):
     :param x: value
     :returns: g2(x)
     """
-    return x + (x**2)/4 + (x**3)/9
+    return x + (x*x)/4 + (x*x*x)/9
     
 
 def enhanced_gauss_2D(x,y,peak,sigx,sigy, centerx, centery, off, theta):
@@ -111,23 +112,34 @@ def enhanced_gauss_2D(x,y,peak,sigx,sigy, centerx, centery, off, theta):
     
     
 def bimod_2D(x,y,centerx,centery,peakg,peaktf,Rx,Ry,sigx,sigy,off,theta):
+    """ two dimensional bimodal profile """
+    a = gauss_2D(x,y,peakg,sigx,sigy, centerx, centery, off/2, theta)
+    b = TF_2D(x,y,peaktf, Rx,Ry, centerx, centery, off/2, theta)
+    return (a + b).ravel()
+    
+    
+def enhanced_bimod_2D(x,y,centerx,centery,peakg,peaktf,Rx,Ry,sigx,sigy,off,theta):
+    """ two dimensional bimodal profile """
     a = gauss_2D(x,y,peakg,sigx,sigy, centerx, centery, off/2, theta)
     b = TF_2D(x,y,peaktf, Rx,Ry, centerx, centery, off/2, theta)
     return (a + b).ravel()
     
 def create_vec(shape):
+    """Create them meshgrid of vectors for fitting"""
     x = np.arange(0,shape[1],1)
     y = np.arange(0,shape[0],1)
     return np.meshgrid(x,y)
     
         
 def pos(x,y,xc,yc,angle):
+    """get the position when rotated"""
     xpos = (x-xc)*np.cos(angle) - (y-yc) * np.sin(angle)
     ypos = (x-xc)*np.sin(angle) + (y-yc) * np.cos(angle)
     return abs(xpos), abs(ypos)
 
 @autojit
 def find_rotated_mask(shape,Rx,Ry,angle,xc,yc):
+    """find a rotated mask"""
     arr = np.empty((shape[0],shape[1]), dtype = bool)
     #now fill the array with distance away from center
     for i in range(arr.shape[0]):
@@ -156,6 +168,7 @@ def find_mask(args, params, shape):
     return find_rotated_mask(shape,**to_rotate)  
     
 def subtract_back(image,n):
+    """subtract average of n rows of top and bottom from background"""
     back = (np.average(image[:n])+np.average(image[-n:]))/2
     return np.subtract(image,back)
     
@@ -202,7 +215,7 @@ def Therm_num(A,sigx, sigy, scalex,scaley):
         
 #fancy writeout
 def write_progress(step,total):
-    #write out fancy
+    """write the progress out to the window"""
     perc_done = step/(total) * 100
     #50 character string always
     num_marks = int(.5 * perc_done)
@@ -210,12 +223,14 @@ def write_progress(step,total):
     out = out + ''.join(' ' for i in range(50 - num_marks))
     sys.stdout.write('\r[{0}]{1:>2.0f}%'.format(out,perc_done))
     sys.stdout.flush()
+    
 #################
 #Model initialization
 #################    
 gauss_2d_mod = Model(gauss_2D, independent_vars = ['x','y'],prefix='gauss_')
 tf_2d_mod = Model(TF_2D, independent_vars = ['x','y'],prefix='tf_')
 bimod_2d_mod = Model(bimod_2D, independent_vars = ['x','y'],prefix='bimod_')
+en_bimod_2d_mod = Model(enhanced_bimod_2D, independent_vars = ['x','y'],prefix='bimod_')
 
 #starting parameters for bimodal fits
 start_bimod_params = {'bimod_centerx': {'value':100,'min':40, 'max':200},
@@ -246,6 +261,7 @@ def fit_image(args, data_in, filename, filepath):
     3. Fix Gaussian and re-fit TF
     
     :param args: arguments passed from command line
+    :param data_in: image data
     :param filename: filename of thing being fit
     :param filepath: path to results folder
     
@@ -254,13 +270,16 @@ def fit_image(args, data_in, filename, filepath):
     x,y = create_vec(data.shape)       
     pars = bimod_2d_mod.make_params()
     
-    pars['bimod_centerx'].value = args.center_x_in
-    pars['bimod_centery'].value = args.center_y_in
+    #find center
+    idx = np.argmax(data, axis = None)
+    center_idx = np.unravel_index(idx,data.shape)
+    pars['bimod_centerx'].value = center_idx[1]
+    pars['bimod_centery'].value = center_idx[0]
    
     
     if args.single:
-        out = bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
-    
+        #out = bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
+        out = en_bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
         report = out.fit_report()
         results =  {key:out.params[key].value for key in out.params.keys()}
         
@@ -276,10 +295,13 @@ def fit_image(args, data_in, filename, filepath):
         ym = np.ma.array(y, mask = mask)
         #now fix TFpeak to 0 and fix center
         TF_val = pars['bimod_peaktf'].value
+        
         pars['bimod_peaktf'].value = 0
         pars['bimod_peaktf'].vary = False
         pars['bimod_Rx'].vary = False
         pars['bimod_Ry'].vary = False
+        pars['bimod_centerx'].vary = False
+        pars['bimod_centery'].vary = False
         #set gaussian wings to good guesses
         pars['bimod_sigx'].value = 10
         pars['bimod_sigy'].value = 10
@@ -388,8 +410,7 @@ def main(args):
             try:
                 data = np.loadtxt(os.path.join(filepath,i))
                 report, results = fit_image(args,data,name,results_path)
-                
-                
+                        
             except:
                 report = 'Unable to fit, possibly invalid file type'
                 results = False
@@ -476,17 +497,7 @@ if __name__  == '__main__':
                        default = 7.04,
                        type = float,
                        help = 'y scale of pixel (default 7.04)') 
-   parser.add_argument('-cx', action = 'store',
-                       dest = 'center_x_in',
-                       type = float,
-                       default = 100,
-                       help = 'X center in matrix units (default )')
-                       
-   parser.add_argument('-cy', action = 'store',
-                       dest = 'center_y_in',
-                       type = float,
-                       default = 90,
-                       help = 'Y center in matrix units (default )')
+
                        
    results = parser.parse_args()
    
