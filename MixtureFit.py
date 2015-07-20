@@ -7,7 +7,9 @@ outputed by BECSaveWave igor routine.
 
 Dependencies: numpy,matplotlib,lmfit,time,os,sys,argparse,pandas,numba
 
+New additions
 7/8/2015 - added automatic center finding with fix to center positions
+7/20/2015 - changed Gaussian distribution for center of profile to flat line
 @author: Zachary Glassman
 '''
 #load necessary packages
@@ -77,21 +79,11 @@ def gauss_2D(x,y,peak,sigx,sigy, centerx, centery, off, theta):
     return (off + peak * np.exp(-a-b)).ravel()
     
 
-def g2(x):
-    """
-    g2- summation function to enhance gaussian
-    .. math::
-           g_2(x) = x + \frac{x^2}{4} + \frac{x^3}{9}
-    
-    :param x: value
-    :returns: g2(x)
-    """
-    return x + (x*x)/4 + (x*x*x)/9
-    
-
-def enhanced_gauss_2D(x,y,peak,sigx,sigy, centerx, centery, off, theta):
-    """ 2 Dimensional Enhanced Gaussian profile
-    
+   
+def flat_gauss_2D(x,y,peak,sigx,sigy, centerx, centery, off, theta, mask):
+    """ 2 Dimensional flat Gaussian profile
+    normal Gaussian in wings and flat between Thomas Fermi Radius
+    Assumes already found mask
     :param x: array of x values
     :param y: array of y values
     :param peak: Peak value of distribution
@@ -101,15 +93,17 @@ def enhanced_gauss_2D(x,y,peak,sigx,sigy, centerx, centery, off, theta):
     :param centery: y center in unrotated frame
     :param off: offset
     :param theta: angle of rotation
-    :return: Enhanced Gaussian Profile in two-dimensions
+    :params mask:TF mask
+    :return: flattened Gaussian Profile in two-dimensions
     """
-    angle = np.deg2rad(theta)
+    angle = np.deg2rad(theta)    
     xcenter = (x-centerx)*np.cos(angle) - (y-centery) * np.sin(angle)
     ycenter = (x-centerx)*np.sin(angle) + (y-centery) * np.cos(angle)
     a = np.divide(np.power(xcenter,2),(2 * sigx**2))
     b = np.divide(np.power(ycenter,2),(2 * sigy**2))
-    return (off + peak * g2(np.exp(-a-b))/g2(1)).ravel()
     
+    return (off + peak * np.exp(-a-b)).ravel()
+   
     
 def bimod_2D(x,y,centerx,centery,peakg,peaktf,Rx,Ry,sigx,sigy,off,theta):
     """ two dimensional bimodal profile """
@@ -118,12 +112,7 @@ def bimod_2D(x,y,centerx,centery,peakg,peaktf,Rx,Ry,sigx,sigy,off,theta):
     return (a + b).ravel()
     
     
-def enhanced_bimod_2D(x,y,centerx,centery,peakg,peaktf,Rx,Ry,sigx,sigy,off,theta):
-    """ two dimensional bimodal profile """
-    a = gauss_2D(x,y,peakg,sigx,sigy, centerx, centery, off/2, theta)
-    b = TF_2D(x,y,peaktf, Rx,Ry, centerx, centery, off/2, theta)
-    return (a + b).ravel()
-    
+
 def create_vec(shape):
     """Create them meshgrid of vectors for fitting"""
     x = np.arange(0,shape[1],1)
@@ -230,7 +219,6 @@ def write_progress(step,total):
 gauss_2d_mod = Model(gauss_2D, independent_vars = ['x','y'],prefix='gauss_')
 tf_2d_mod = Model(TF_2D, independent_vars = ['x','y'],prefix='tf_')
 bimod_2d_mod = Model(bimod_2D, independent_vars = ['x','y'],prefix='bimod_')
-en_bimod_2d_mod = Model(enhanced_bimod_2D, independent_vars = ['x','y'],prefix='bimod_')
 
 #starting parameters for bimodal fits
 start_bimod_params = {'bimod_centerx': {'value':100,'min':40, 'max':200},
@@ -257,8 +245,8 @@ def fit_image(args, data_in, filename, filepath):
     """
     function to fit image.  For a sequential fit, proceed as follows
     1. Do full bimodal fit to determine approximate TF radius
-    2. Mask TF and fit to Gaussian
-    3. Fix Gaussian and re-fit TF
+    2. Mask TF and fit to flat Gaussian
+    3. Fix flat Gaussian and re-fit TF
     
     :param args: arguments passed from command line
     :param data_in: image data
@@ -279,7 +267,7 @@ def fit_image(args, data_in, filename, filepath):
     
     if args.single:
         #out = bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
-        out = en_bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
+        out = bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
         report = out.fit_report()
         results =  {key:out.params[key].value for key in out.params.keys()}
         
