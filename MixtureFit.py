@@ -80,10 +80,16 @@ def gauss_2D(x,y,peak,sigx,sigy, centerx, centery, off, theta):
     
 
    
-def flat_gauss_2D(x,y,peak,sigx,sigy, centerx, centery, off, theta, mask):
+def flat_gauss_2D(x,y,mask,peak,sigx,sigy, centerx, centery, off, theta):
     """ 2 Dimensional flat Gaussian profile
     normal Gaussian in wings and flat between Thomas Fermi Radius
-    Assumes already found mask
+    Assumes already found mask which is array of true/false values
+    the True values correspond to flat peak, we will proceed as follows
+    1. in mask, true into 0 and false in 1
+    2. multiply ans by mask (clear center values)
+    3. turn true into 1 and false into 0
+    3. add ans to mask * center value
+    
     :param x: array of x values
     :param y: array of y values
     :param peak: Peak value of distribution
@@ -102,12 +108,24 @@ def flat_gauss_2D(x,y,peak,sigx,sigy, centerx, centery, off, theta, mask):
     a = np.divide(np.power(xcenter,2),(2 * sigx**2))
     b = np.divide(np.power(ycenter,2),(2 * sigy**2))
     
-    return (off + peak * np.exp(-a-b)).ravel()
+    ans = peak * np.exp(-a-b)
+    #now smooth the peak
+    mask1 = np.logical_not(mask).ravel()
+    ans = ans * mask1
+    #now the value for the middle should be max value of ans
+    val = np.max(ans)
+    return off + ans + mask.astype(int).ravel() * val
    
     
 def bimod_2D(x,y,centerx,centery,peakg,peaktf,Rx,Ry,sigx,sigy,off,theta):
     """ two dimensional bimodal profile """
     a = gauss_2D(x,y,peakg,sigx,sigy, centerx, centery, off/2, theta)
+    b = TF_2D(x,y,peaktf, Rx,Ry, centerx, centery, off/2, theta)
+    return (a + b).ravel()
+    
+def bimod_flat_2D(x,y,mask,centerx,centery,peakg,peaktf,Rx,Ry,sigx,sigy,off,theta):
+    """ two dimensional bimodal profile """
+    a = flat_gauss_2D(x,y,mask,peakg,sigx,sigy, centerx, centery, off/2, theta)
     b = TF_2D(x,y,peaktf, Rx,Ry, centerx, centery, off/2, theta)
     return (a + b).ravel()
     
@@ -134,7 +152,7 @@ def find_rotated_mask(shape,Rx,Ry,angle,xc,yc):
     for i in range(arr.shape[0]):
         for j in range(arr.shape[1]):
             xpos, ypos = pos(j,i,xc,yc,angle)
-            if (xpos/Rx)**2 + (ypos/Ry)**2 <1:
+            if (xpos/Rx)**2 + (ypos/Ry)**2 < 1:
                 arr[i,j] = True
             else:
                 arr[i,j] = False
@@ -197,7 +215,7 @@ def Therm_num(A,sigx, sigy, scalex,scaley):
     :return: atom number
     """
     Rx = sigx * scalex
-    Ry = sigy* scaley
+    Ry = sigy * scaley
     sigma =  3 * (0.5891583264**2)/(2 * np.pi)
     V = 2*np.pi* A* Rx * Ry
     return V/sigma
@@ -219,18 +237,19 @@ def write_progress(step,total):
 gauss_2d_mod = Model(gauss_2D, independent_vars = ['x','y'],prefix='gauss_')
 tf_2d_mod = Model(TF_2D, independent_vars = ['x','y'],prefix='tf_')
 bimod_2d_mod = Model(bimod_2D, independent_vars = ['x','y'],prefix='bimod_')
+bimod_flat_2d_mod = Model(bimod_flat_2D, independent_vars = ['x','y','mask'],prefix='bimod_')
 
 #starting parameters for bimodal fits
-start_bimod_params = {'bimod_centerx': {'value':100,'min':40, 'max':200},
-                      'bimod_centery':{'value':90,'min':40, 'max':200},
+start_bimod_params = {'bimod_centerx': {'value':92,'min':40, 'max':200},
+                      'bimod_centery':{'value':71,'min':40, 'max':200},
                       'bimod_peakg':{'value':.01,'min' : 0,'max':.5},
                       'bimod_peaktf':{'value':.2,'min' : 0,'max':.5},
-                      'bimod_Rx':{'value':15 ,'min' : 0,'max':100},
-                      'bimod_Ry':{'value':15,'min' : 0,'max':100},
-                      'bimod_sigx':{'value':35,'min' : 0,'max':150},
-                      'bimod_sigy':{'value':35,'min' : 0,'max':150},
+                      'bimod_Rx':{'value':12 ,'min' : 9,'max':14},
+                      'bimod_Ry':{'value':12,'min' : 9,'max':14},
+                      'bimod_sigx':{'value':17,'min' :14,'max':24},
+                      'bimod_sigy':{'value':17,'min' : 14,'max':24},
                       'bimod_off':{'value':0 ,'min' : -1,'max': 1},
-                      'bimod_theta':{'value':48, 'min' : 48, 'max': 50}
+                      'bimod_theta':{'value':49, 'min' : 48, 'max': 50}
                       }
 
 
@@ -263,10 +282,8 @@ def fit_image(args, data_in, filename, filepath):
     center_idx = np.unravel_index(idx,data.shape)
     pars['bimod_centerx'].value = center_idx[1]
     pars['bimod_centery'].value = center_idx[0]
-   
     
     if args.single:
-        #out = bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
         out = bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
         report = out.fit_report()
         results =  {key:out.params[key].value for key in out.params.keys()}
@@ -276,6 +293,7 @@ def fit_image(args, data_in, filename, filepath):
         pars = copy.deepcopy(first_fit.params)
         #now figure out mask by finding square region of larger TF radius after rotation
         mask = find_mask(args,pars,data.shape) #array for mask
+
         # now make maskd array
         ma = np.ma.array(data, mask = mask)
         #now we apply the same mask to the vectors
@@ -294,11 +312,13 @@ def fit_image(args, data_in, filename, filepath):
         pars['bimod_sigx'].value = 10
         pars['bimod_sigy'].value = 10
         pars['bimod_peakg'].value = 0.1
-        #fit
+        #fit to notmral gaussian
         second_fit = bimod_2d_mod.fit(ma.compressed(),
                                       pars,
                                       x=xm.compressed(),
                                       y=ym.compressed())
+        
+        
         
         pars = copy.deepcopy(second_fit.params)
         #now free the TF parameters
@@ -311,11 +331,20 @@ def fit_image(args, data_in, filename, filepath):
         pars['bimod_sigy'].vary = False
         pars['bimod_peakg'].vary = False
         
-        #do third fit
-        out = bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
+        #do third fit to either flat or gaussian
+        if args.gauss:
+            out = bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
+        else:
+            out = bimod_flat_2d_mod.fit(data.ravel(),
+                                    pars,
+                                    mask = mask,
+                                    x=x.ravel(),
+                                    y=y.ravel())
         #results
         report = out.fit_report()
         results =  {key:out.params[key].value for key in out.params.keys()}
+    
+
         
     if args.pretty_print:  
         try:
@@ -330,7 +359,7 @@ def fit_image(args, data_in, filename, filepath):
             plt.title(filename)
             ax1 = plt.subplot2grid((3,3), (0,0))
             ax2 = plt.subplot2grid((3,3), (0,1))
-            axm = plt.subplot2grid((3,3),(0,2))
+            axm = plt.subplot2grid((3,3), (0,2))
             ax3 = plt.subplot2grid((3,3), (1, 0), colspan=3)
             ax4 = plt.subplot2grid((3,3), (2, 0), colspan=3)
         
@@ -340,23 +369,31 @@ def fit_image(args, data_in, filename, filepath):
                 pass
             else:
                 axm.imshow(ma)
-            ax3.scatter(xs,np.sum(data, axis = 0),s=5,c='orange')
+            ax3.scatter(xs,np.sum(data, axis = 0),s=5,c='green')
             ax3.plot(np.sum(data_out, axis = 0))
             ax4.plot(np.sum(data_out, axis = 1))
-            ax4.scatter(ys,np.sum(data, axis = 1),s=5, c='orange')
+            ax4.scatter(ys,np.sum(data, axis = 1),s=5, c='green')
             if args.single:
                 pass
             else:
                xsm = np.arange(0,ma.shape[1],1)
                ysm = np.arange(0,ma.shape[0],1)
-               data_outm = bimod_2d_mod.eval(params = second_fit.params,
-                                             x = x,
-                                             y = y).reshape(data.shape[0],
+               data_outm = bimod_flat_2d_mod.eval(params = second_fit.params,
+                                             mask = mask,
+                                             x = x.ravel(),
+                                             y = y.ravel()).reshape(data.shape[0],
                                                             data.shape[1])
                ax3.plot(np.sum(data_outm, axis = 0))
                ax4.plot(np.sum(data_outm, axis = 1))
                ax3.scatter(xsm,np.sum(ma, axis = 0),s=5,c='red')
                ax4.scatter(ysm,np.sum(ma, axis = 1),s=5,c='red') 
+               
+               data_outm2 = bimod_2d_mod.eval(params = second_fit.params,
+                                             x = x,
+                                             y = y).reshape(data.shape[0],
+                                                            data.shape[1])
+               ax3.plot(np.sum(data_outm2, axis = 0))
+               ax4.plot(np.sum(data_outm2, axis = 1))
                
             ax1.set_title('Data')
             ax2.set_title('Fitted Data')
@@ -395,14 +432,20 @@ def main(args):
     with open(os.path.join(results_path,'Fit_Results.txt'),'w') as f:
         for i in files:
             name = i.rstrip('.txt')
-            try:
+            if args.debug:
+                #debug so we can catch results from bad images
                 data = np.loadtxt(os.path.join(filepath,i))
                 report, results = fit_image(args,data,name,results_path)
-                        
-            except:
-                report = 'Unable to fit, possibly invalid file type'
-                results = False
-                err_list.append(i)
+            else: 
+                
+                try:
+                    data = np.loadtxt(os.path.join(filepath,i))
+                    report, results = fit_image(args,data,name,results_path)
+                            
+                except:
+                    report = 'Unable to fit, possibly invalid file type'
+                    results = False
+                    err_list.append(i)
             
             #write report to file
             f.write('{0}\n{1}\n{2}\n'.format(i, report,''.join('#' for i in range(30))))
@@ -446,6 +489,11 @@ if __name__  == '__main__':
                        dest = 'single',
                        default = False,
                        help = 'Do a single bimodal fit (default False)')
+                       
+   parser.add_argument('-gauss', action = 'store_true',
+                       dest = 'gauss',
+                       default = False,
+                       help = 'Fit to Gaussian for Thermal (default False)')
                        
    parser.add_argument('-d', action = 'store_true',
                        dest = 'debug',
