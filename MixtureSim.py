@@ -9,7 +9,7 @@ functions as MixtureFit
 """
 import numpy as np
 import pandas as pd
-from MixtureFit import bimod_flat_2d_mod ,create_vec,find_rotated_mask
+from MixtureFit import bimod_flat_2d_mod ,create_vec,find_rotated_mask,write_progress
 import os
 
 def find_mask(params, shape):
@@ -23,7 +23,15 @@ def find_mask(params, shape):
     
         
     return find_rotated_mask(shape,**to_rotate)  
-    
+
+def add_noise(arr):
+    res = np.zeros(arr.shape)
+    for i in range(arr.shape[0]):
+        for j in range(arr.shape[1]):
+            res[i,j] = arr[i,j] + np.random.normal(loc = 0,
+                                                   scale = .05)
+    return res
+            
 def create_image(name,
                  bimod_centerx,
                  bimod_centery,
@@ -58,7 +66,10 @@ def create_image(name,
                                          y = y.ravel(),
                                          mask = mask).reshape(shape[0],
                                                         shape[1])
-    np.savetxt(name, data)
+                                                        
+    #now lets add some Gaussian noise
+    data_out = add_noise(data)
+    np.savetxt(name, data_out)
 
 def main():
     #get correct directory
@@ -92,15 +103,22 @@ def main():
     ranges['bimod_theta'] = (48,49)
     ranges['bimod_off'] = (-0.001,0.001)
     
-   
+    index = 0
+    tot_index = len(files)
+    print('Commencing Simulation of {0} files'.format(tot_index))
+    write_progress(index,tot_index)
     for name in files:
         results = {key:np.random.uniform(*ranges[key]) for key in param_names}
         #now add to pandas df
         df.loc[name] = pd.Series(results)
         create_image(name,**results)
-      
+        index += 1
+        write_progress(index,tot_index)
+    
+    path = os.path.join(os.getcwd(),'Results')
+    os.chdir(path)
     df.to_csv('Sim_params.txt')
-    print('Done')
+    print('\nDone')
 
 if __name__ == '__main__':
     main()

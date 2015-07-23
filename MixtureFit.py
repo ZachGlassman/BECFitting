@@ -221,14 +221,14 @@ def Therm_num(A,sigx, sigy, scalex,scaley):
     return V/sigma
         
 #fancy writeout
-def write_progress(step,total):
+def write_progress(step,total,string = None):
     """write the progress out to the window"""
     perc_done = step/(total) * 100
     #50 character string always
     num_marks = int(.5 * perc_done)
     out = ''.join('#' for i in range(num_marks))
     out = out + ''.join(' ' for i in range(50 - num_marks))
-    sys.stdout.write('\r[{0}]{1:>2.0f}%'.format(out,perc_done))
+    sys.stdout.write('\r[{0}]{1:>2.0f}% {2}'.format(out,perc_done,string))
     sys.stdout.flush()
     
 #################
@@ -242,10 +242,10 @@ bimod_flat_2d_mod = Model(bimod_flat_2D, independent_vars = ['x','y','mask'],pre
 #starting parameters for bimodal fits
 start_bimod_params = {'bimod_centerx': {'value':92,'min':40, 'max':200},
                       'bimod_centery':{'value':71,'min':40, 'max':200},
-                      'bimod_peakg':{'value':.01,'min' : 0,'max':.5},
-                      'bimod_peaktf':{'value':.2,'min' : 0,'max':.5},
-                      'bimod_Rx':{'value':12 ,'min' : 9,'max':14},
-                      'bimod_Ry':{'value':12,'min' : 9,'max':14},
+                      'bimod_peakg':{'value':.02,'min' : .0001,'max':.05},
+                      'bimod_peaktf':{'value':.15,'min' : 0,'max':.5},
+                      'bimod_Rx':{'value':13 ,'min' : 9,'max':14},
+                      'bimod_Ry':{'value':13,'min' : 9,'max':14},
                       'bimod_sigx':{'value':17,'min' :14,'max':24},
                       'bimod_sigy':{'value':17,'min' : 14,'max':24},
                       'bimod_off':{'value':0 ,'min' : -1,'max': 1},
@@ -283,8 +283,14 @@ def fit_image(args, data_in, filename, filepath):
     pars['bimod_centerx'].value = center_idx[1]
     pars['bimod_centery'].value = center_idx[0]
     
+    if args.lock_sig:
+        pars['bimod_sigy'].expr = 'bimod_sigx'
+    
     if args.single:
-        out = bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
+        out = bimod_2d_mod.fit(data.ravel(),
+                               pars,
+                               x=x.ravel(),
+                               y=y.ravel())
         report = out.fit_report()
         results =  {key:out.params[key].value for key in out.params.keys()}
         
@@ -310,7 +316,8 @@ def fit_image(args, data_in, filename, filepath):
         pars['bimod_centery'].vary = False
         #set gaussian wings to good guesses
         pars['bimod_sigx'].value = 10
-        pars['bimod_sigy'].value = 10
+        if not args.lock_sig:
+            pars['bimod_sigy'].value = 10
         pars['bimod_peakg'].value = 0.1
         #fit to notmral gaussian
         second_fit = bimod_2d_mod.fit(ma.compressed(),
@@ -328,16 +335,22 @@ def fit_image(args, data_in, filename, filepath):
         pars['bimod_Ry'].vary = True
         #fix gaussian parameters
         pars['bimod_sigx'].vary = False
-        pars['bimod_sigy'].vary = False
+        if not args.lock_sig:
+            pars['bimod_sigy'].vary = False
         pars['bimod_peakg'].vary = False
         
         #do third fit to either flat or gaussian
         if args.gauss:
             out = bimod_2d_mod.fit(data.ravel(),pars,x=x.ravel(),y=y.ravel())
         else:
+            #find new mask with s =0
+            temps = args.s
+            args.s = 1
+            mask2 = find_mask(args,pars,data.shape)
+            args.s = temps
             out = bimod_flat_2d_mod.fit(data.ravel(),
                                     pars,
-                                    mask = mask,
+                                    mask = mask2,
                                     x=x.ravel(),
                                     y=y.ravel())
         #results
@@ -348,13 +361,20 @@ def fit_image(args, data_in, filename, filepath):
         
     if args.pretty_print:  
         try:
-            data_out = bimod_2d_mod.eval(params = pars,
+            if args.gauss or args.single:
+                data_out = bimod_2d_mod.eval(params = pars,
                                          x = x,
                                          y = y).reshape(data.shape[0],
                                                         data.shape[1])
+            else:
+                data_out = bimod_flat_2d_mod.eval(params = pars,
+                                             mask = mask,
+                                             x = x.ravel(),
+                                             y = y.ravel()).reshape(data.shape[0],
+                                                                    data.shape[1])
             xs = np.arange(0,data.shape[1],1)
             ys = np.arange(0,data.shape[0],1)
-       
+            
             plt.clf()
             plt.title(filename)
             ax1 = plt.subplot2grid((3,3), (0,0))
@@ -369,24 +389,16 @@ def fit_image(args, data_in, filename, filepath):
                 pass
             else:
                 axm.imshow(ma)
+                
             ax3.scatter(xs,np.sum(data, axis = 0),s=5,c='green')
             ax3.plot(np.sum(data_out, axis = 0))
             ax4.plot(np.sum(data_out, axis = 1))
             ax4.scatter(ys,np.sum(data, axis = 1),s=5, c='green')
+            #now plot sums
             if args.single:
                 pass
             else:
-               xsm = np.arange(0,ma.shape[1],1)
-               ysm = np.arange(0,ma.shape[0],1)
-               data_outm = bimod_flat_2d_mod.eval(params = second_fit.params,
-                                             mask = mask,
-                                             x = x.ravel(),
-                                             y = y.ravel()).reshape(data.shape[0],
-                                                            data.shape[1])
-               ax3.plot(np.sum(data_outm, axis = 0))
-               ax4.plot(np.sum(data_outm, axis = 1))
-               ax3.scatter(xsm,np.sum(ma, axis = 0),s=5,c='red')
-               ax4.scatter(ysm,np.sum(ma, axis = 1),s=5,c='red') 
+               
                
                data_outm2 = bimod_2d_mod.eval(params = second_fit.params,
                                              x = x,
@@ -395,12 +407,28 @@ def fit_image(args, data_in, filename, filepath):
                ax3.plot(np.sum(data_outm2, axis = 0))
                ax4.plot(np.sum(data_outm2, axis = 1))
                
+               if not args.gauss:
+                   xsm = np.arange(0,ma.shape[1],1)
+                   ysm = np.arange(0,ma.shape[0],1)
+                   data_outm = bimod_flat_2d_mod.eval(params = second_fit.params,
+                                                 mask = mask2,
+                                                 x = x.ravel(),
+                                                 y = y.ravel()).reshape(data.shape[0],
+                                                                data.shape[1])
+                   ax3.plot(np.sum(data_outm, axis = 0))
+                   ax4.plot(np.sum(data_outm, axis = 1))
+                   ax3.scatter(xsm,np.sum(ma, axis = 0),s=5,c='red')
+                   ax4.scatter(ysm,np.sum(ma, axis = 1),s=5,c='red') 
+               else:
+                   ax3.scatter(xs,np.sum(ma, axis = 0),s=5,c='red')
+                   ax4.scatter(ys,np.sum(ma, axis = 1) ,s=5,c='red')
+               
             ax1.set_title('Data')
             ax2.set_title('Fitted Data')
             ax3.set_title('X Sum')
             ax4.set_title('Y Sum')
             plt.tight_layout()
-            plt.savefig(os.path.join(filepath,filename + '.png'),dpi = 200)
+            plt.savefig(os.path.join(filepath,args.name+filename + '.png'),dpi = 200)
         except:
             report += 'Had trouble making plots'
        
@@ -428,8 +456,8 @@ def main(args):
     tot_index = len(files)
     err_list = []
     print('Commencing fit of {0} files'.format(tot_index))
-    write_progress(index,tot_index)
-    with open(os.path.join(results_path,'Fit_Results.txt'),'w') as f:
+    write_progress(index,tot_index,files[0])
+    with open(os.path.join(results_path,args.name + 'Fit_Results.txt'),'w') as f:
         for i in files:
             name = i.rstrip('.txt')
             if args.debug:
@@ -453,7 +481,7 @@ def main(args):
             if results:
                 df.loc[name] = pd.Series(results)
             index += 1
-            write_progress(index,tot_index)
+            write_progress(index,tot_index,files[index-1])
             
     #now calculate NBEC and NTHERM from Results and save
     df['N_BEC'] = np.vectorize(BEC_num)(df['bimod_peaktf'],
@@ -463,7 +491,7 @@ def main(args):
                       df['bimod_sigx'],
                       df['bimod_sigy'], args.scalex,args.scaley)
                       
-    df.to_csv(os.path.join(results_path,'Param_Results.txt'))
+    df.to_csv(os.path.join(results_path, args.name + 'Param_Results.txt'))
     end = time.time()  
     print()
     print_str = 'Completed fitting {0} out of {1} files'
@@ -533,6 +561,17 @@ if __name__  == '__main__':
                        default = 7.04,
                        type = float,
                        help = 'y scale of pixel (default 7.04)') 
+    
+   parser.add_argument('-name', action = 'store',
+                       dest = 'name',
+                       default = '',
+                       type = str,
+                       help = 'name of output files')
+                       
+   parser.add_argument('-lock_sig', action = 'store_true',
+                       dest = 'lock_sig',
+                       default = False,
+                       help = 'Assume spherical symmetry for non-condensed atoms')
 
                        
    results = parser.parse_args()
