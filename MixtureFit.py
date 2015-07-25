@@ -242,14 +242,14 @@ bimod_flat_2d_mod = Model(bimod_flat_2D, independent_vars = ['x','y','mask'],pre
 #starting parameters for bimodal fits
 start_bimod_params = {'bimod_centerx': {'value':92,'min':40, 'max':200},
                       'bimod_centery':{'value':71,'min':40, 'max':200},
-                      'bimod_peakg':{'value':.02,'min' : .0001,'max':.05},
+                      'bimod_peakg':{'value':.02,'min' : .009,'max':.05},
                       'bimod_peaktf':{'value':.15,'min' : 0,'max':.5},
                       'bimod_Rx':{'value':13 ,'min' : 9,'max':14},
                       'bimod_Ry':{'value':13,'min' : 9,'max':14},
                       'bimod_sigx':{'value':17,'min' :14,'max':24},
                       'bimod_sigy':{'value':17,'min' : 14,'max':24},
                       'bimod_off':{'value':0 ,'min' : -1,'max': 1},
-                      'bimod_theta':{'value':49, 'min' : 48, 'max': 50}
+                      'bimod_theta':{'value':48.5, 'min' : 48, 'max': 50}
                       }
 
 
@@ -274,14 +274,23 @@ def fit_image(args, data_in, filename, filepath):
     
     """
     data = subtract_back(data_in,20)
-    x,y = create_vec(data.shape)       
     pars = bimod_2d_mod.make_params()
+     #find center for image ROI
+    idx = np.argmax(data, axis = None)
+    center_idx = np.unravel_index(idx,data.shape)
+    width = 60
+    data = data[center_idx[0]-width:center_idx[0]+width,
+                center_idx[1]-width:center_idx[1]+width]
+                
     
-    #find center
+    x,y = create_vec(data.shape)       
+    #now find center for fit parameters
     idx = np.argmax(data, axis = None)
     center_idx = np.unravel_index(idx,data.shape)
     pars['bimod_centerx'].value = center_idx[1]
-    pars['bimod_centery'].value = center_idx[0]
+    pars['bimod_centery'].value = center_idx[0]    
+   
+    
     
     if args.lock_sig:
         pars['bimod_sigy'].expr = 'bimod_sigx'
@@ -363,15 +372,16 @@ def fit_image(args, data_in, filename, filepath):
         try:
             if args.gauss or args.single:
                 data_out = bimod_2d_mod.eval(params = pars,
-                                         x = x,
-                                         y = y).reshape(data.shape[0],
-                                                        data.shape[1])
+                                         x = x.ravel(),
+                                         y = y.ravel()).reshape(data.shape[0],
+                                                                data.shape[1])
             else:
                 data_out = bimod_flat_2d_mod.eval(params = pars,
                                              mask = mask,
                                              x = x.ravel(),
                                              y = y.ravel()).reshape(data.shape[0],
                                                                     data.shape[1])
+            
             xs = np.arange(0,data.shape[1],1)
             ys = np.arange(0,data.shape[0],1)
             
@@ -385,20 +395,20 @@ def fit_image(args, data_in, filename, filepath):
         
             ax1.imshow(data)
             ax2.imshow(data_out)
-            if args.single:
-                pass
-            else:
-                axm.imshow(ma)
-                
+                        
+            #now plot sums
             ax3.scatter(xs,np.sum(data, axis = 0),s=5,c='green')
             ax3.plot(np.sum(data_out, axis = 0))
             ax4.plot(np.sum(data_out, axis = 1))
             ax4.scatter(ys,np.sum(data, axis = 1),s=5, c='green')
-            #now plot sums
+            
             if args.single:
-                pass
+                
+                ax3.vlines(pars['bimod_centerx'].value,0,3)
+                ax4.vlines(pars['bimod_centery'].value,0,3)
+                #pass
             else:
-               
+               axm.imshow(ma)
                
                data_outm2 = bimod_2d_mod.eval(params = second_fit.params,
                                              x = x,
@@ -427,6 +437,7 @@ def fit_image(args, data_in, filename, filepath):
             ax2.set_title('Fitted Data')
             ax3.set_title('X Sum')
             ax4.set_title('Y Sum')
+           
             plt.tight_layout()
             plt.savefig(os.path.join(filepath,args.name+filename + '.png'),dpi = 200)
         except:
