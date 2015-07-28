@@ -105,12 +105,12 @@ def write_progress(step,total,string = None):
     sys.stdout.flush()
     
 def main():
-    sim_data,data,raw_data,sum_data = get_data('C:\\Users\zag\\Documents\\BECFitting\\2015-7-14\\7-14-matrix0104_0.txt')
+    sim_data,data,raw_data,sum_data = get_data('C:\\Users\zag\\Documents\\BECFitting\\2015-7-14\\7-14-matrix0103_0.txt')
     #need to keep track of qc for both TF and Normal components
     qc = {'T':np.zeros(len(sim_data)),'N':np.zeros(len(sim_data))}
     params = {'mu':np.mean(sim_data),'sigsqrT':9**2,'sigsqrN':25**2,'q':.5}
     ans = {}
-    m = np.linspace(4,6,1000)
+    m = np.linspace(2.5,9,100)
     index = 0
     tot_index = len(m)
     write_progress(index,tot_index,m[0])
@@ -119,7 +119,7 @@ def main():
         index += 1
         write_progress(index,tot_index,m[index-1])
         
-    fig, ax = plt.subplots(3,1)
+    fig, ax = plt.subplots(4,1)
     x = np.arange(len(raw_data))
     ax[0].hist(sim_data+60,normed = True, bins = len(data))
     ax[1].plot(x,raw_data,'o-')
@@ -139,6 +139,8 @@ def main():
      
     j = minj[0]
     print('\nOptimal scaling is : {0}'.format(j))
+    print('TF Radius: {0}'.format(np.sqrt(ans[j]['sigsqrT'])))
+    print('Gauss width: {0}'.format(np.sqrt(ans[j]['sigsqrN'])))
     mu = ans[j]['mu']+60
     sigsqrN = ans[j]['sigsqrN']
     sigsqrT = ans[j]['sigsqrT']
@@ -151,7 +153,9 @@ def main():
     ax[1].plot(x,(norm+tf)*sum_data)
         
     ax[2].plot(m,[ans[i]['chisqr'] for i in m])    
+    ax[3].plot(m,[np.sqrt(ans[i]['sigsqrT']) for i in m])
     #ax[0].legend()
+    plt.tight_layout()
     plt.show()
 
    
